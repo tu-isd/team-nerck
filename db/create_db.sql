@@ -1,8 +1,8 @@
-
+DROP TABLE IF EXISTS member_role;
 DROP TABLE IF EXISTS homegroup_leader;
 DROP TABLE IF EXISTS homegroup_member;
 DROP TABLE IF EXISTS attendance;
-DROP TABLE IF EXISTS member_role;
+
 DROP TABLE IF EXISTS member;
 DROP TABLE IF EXISTS role;
 DROP TABLE IF EXISTS homegroup;
@@ -30,24 +30,16 @@ create table role (
   role TEXT
 );
 
-
 create table member_role(
   member_id INTEGER,
-  password TEXT,
+  password text ,
   role_id INTEGER,
   is_active BOOLEAN,
   foreign key (member_id) REFERENCES member(id),
-  foreign key (role_id) references role(id)
+  foreign key (role_id) references role(id),
+  primary key (member_id, role_id)
 );
 
-
-CREATE TABLE member_role (
-  member_id INTEGER,
-  password  TEXT,
-  role_id   INTEGER,
-  FOREIGN KEY (member_id) REFERENCES member (id),
-  FOREIGN KEY (role_id) REFERENCES role (id)
-);
 
 CREATE TABLE homegroup (
   id          SERIAL PRIMARY KEY,

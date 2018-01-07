@@ -10,7 +10,7 @@ def connect_db():
     connection = psycopg2.connect("host=faraday.cse.taylor.edu port=5432 dbname=verbo user=verbo password=cuenca")
     dict_cur = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     # cursor = connection.cursor()
-
+    g.connection = connection
     # print('connection = %s' % connection)
     # print('cursor = %s' % cursor)
 
@@ -42,19 +42,18 @@ def create_user(member_id, password, role_id):
     VALUES(%s, %s, %s, %s);
     '''
     g.db.execute(query, (member_id, password, role_id, '1'))
-    rowcount = g.db.rowcount
-    # g.db.commit()
-    return rowcount
+    #rowcount = g.db.rowcount
+    g.connection.commit()
+    return g.db
 
 # edits a member password
-def update_user(email, password, role_id):
-    role_id = int(role_id)
+def update_user(member_id, password, role_id):
     query = '''
-    UPDATE member SET email = %s, password = :%s, role_id = %s
-    WHERE email = %s
+    UPDATE member_role SET  password = %s, role_id = %s
+    WHERE member_id = %s
     '''
-    g.db.execute(query,(email, password, role_id, email))
-    g.db.commit()
+    g.db.execute(query,(password, role_id, member_id))
+    g.connection.commit()
     return g.db.rowcount
 
 # finds all roles
@@ -67,11 +66,12 @@ def find_roles():
 
 # finds member based on an email
 def find_user(email):
-    g.db.execute('SELECT * from member join member_role on member.id = member_role.member_id WHERE member.email = %s', (email,))
+    g.db.execute('SELECT * from member join member_role on member.id = member_role.member_id join role on member_role.role_id = role.id WHERE member.email = %s', (email,))
     return g.db.fetchone()
 
 def find_user_info(id):
-    return g.db.execute('SELECT * from member WHERE member.id =%s', (id,)).fetchone()
+    g.db.execute('SELECT * from member join member_role on member_role.member_id = member.id WHERE member.id =%s', (id,))
+    return g.db.fetchone()
 
 # finds the most recent member entered into the db
 def recent_user():
@@ -90,12 +90,9 @@ def get_all_users():
 
 # finds a members associated homegroup (specifically for homegroup leaders)
 def find_user_homegroup(email):
-    query = '''SELECT * from homegroup_leader JOIN member on homegroup_leader.member_id = member.id
-    WHERE email = %s
-    '''
-    g.db.execute(query, (email))
-    homegroup_id = g.db.fetchone()['homegroup_id']
-    return homegroup_id
+
+    g.db.execute('SELECT * from homegroup_leader JOIN member on homegroup_leader.member_id = member.id WHERE email = %s',(email,))
+    return g.db.fetchone()['homegroup_id']
 
 # finds the most recent member entered into the db
 def recent_user():
@@ -114,17 +111,19 @@ def get_member_count():
 
 # finds member info by passing in an email
 def find_member_info(email):
-    return g.db.execute('SELECT * from member WHERE email =%s', (email,)).fetchone()
+    g.db.execute('SELECT * from member WHERE email =%s', (email,))
+    return g.db.fetchone()
 
 # finds member info by passing in a member id
 def find_member(member_id):
-    return g.db.execute('SELECT * FROM member WHERE id = %s', (member_id,)).fetchone()
+    g.db.execute('SELECT * FROM member WHERE id = %s', (member_id,))
+    return g.db.fetchone()
 
 # finds all members in the db
 def get_all_members():
     query = '''
     SELECT * FROM member
-    WHERE is_active=1
+    WHERE is_active='1'
     ORDER BY last_name asc
     '''
     g.db.execute(query)
@@ -144,10 +143,10 @@ def add_age_to_member_rows(rows):
 def get_all_members_not_in_homegroup(homegroup_id):
     homegroup_id = int (homegroup_id)
     query ='''
-    select * from member where member.is_active = 1 and member.id not in (
+    select * from member where member.is_active = '1' and member.id not in (
     select member_id from homegroup_member
     where homegroup_id = :%s and
-    homegroup_member.is_active = 1
+    homegroup_member.is_active = '1'
     )
     '''
     g.db.execute(query, ( homegroup_id))
@@ -158,7 +157,7 @@ def get_homegroup_inactive_members(homegroup_id):
     return g.db.execute('''SELECT * FROM member
         JOIN homegroup_member ON member.id = homegroup_member.member_id
         JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
-        WHERE homegroup_member.is_active != 1 and  homegroup.id = %s''', (homegroup_id,)).fetchall()
+        WHERE homegroup_member.is_active != '1' and  homegroup.id = %s''', (homegroup_id,)).fetchall()
 
 
 # sets a homegroup member to be reactivated in the homegroup
@@ -166,18 +165,18 @@ def reactive_homegroup_member(homegroup_id, member_id):
     homegroup_id = int (homegroup_id)
     member_id = int(member_id)
     query = '''
-    UPDATE homegroup_member SET is_active = 1
+    UPDATE homegroup_member SET is_active = '1'
     where homegroup_id = %s and member_id = %s
     '''
     g.db.execute(query, (homegroup_id, member_id))
-    g.db.commit()
-    return g.db.rowcount
+    g.connection.commit()
+    return g.db
 
 # finds all inactive members in the db
 def get_all_inactive_members():
     query = '''
     SELECT * FROM member
-    WHERE is_active=0
+    WHERE is_active='0'
     '''
     g.db.execute(query)
     return add_age_to_member_rows(g.db.fetchall())
@@ -185,13 +184,13 @@ def get_all_inactive_members():
 # edits member info
 def edit_member(member_id, first_name, last_name, email, phone_number, gender, birthday, baptism_status, marital_status, join_date):
     member_id = int(member_id)
-    print(member_id)
+
     query = '''
     UPDATE member SET first_name = %s, last_name = %s, email = %s, phone_number = %s, gender = %s, birthday = %s, baptism_status = %s, marital_status = %s, join_date = %s
     WHERE id = %s
     '''
     g.db.execute(query, (first_name, last_name, email, phone_number, gender, birthday, baptism_status, marital_status, join_date, member_id))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 
@@ -203,7 +202,7 @@ def create_member(first_name, last_name, email, phone_number, gender, birthday, 
     '''
     g.db.execute(query, (first_name,  last_name, email, phone_number,  gender,  birthday,
                                    baptism_status,  marital_status,  join_date))
-    g.db.commit()
+    g.connection.commit()
 
     # dict_cur = g.db.cursor(cursor_factory=psycopg2.extras.DictCursor)
     # dict_cur.execute("INSERT INTO member(first_name, last_name, email, phone_number, gender, birthday, baptism_status, marital_status, join_date, is_active) VALUES(%s, %s, %s, %d, %s, %d, %s, %s, %s, %s)", (first_name, last_name, email, phone_number, gender, birthday, baptism_status, marital_status, join_date, 1))
@@ -245,7 +244,7 @@ def remove_member(homegroup_id, member_id):
     member_id = int(member_id)
     homegroup_id = int(homegroup_id)
     query = '''
-    UPDATE homegroup_member SET is_active = 0
+    UPDATE homegroup_member SET is_active = '0'
     WHERE homegroup_id = %s AND member_id = %s
     '''
     g.db.execute(query, (homegroup_id,  member_id))
@@ -254,38 +253,40 @@ def remove_member(homegroup_id, member_id):
 
 # this sets a member as inactive in the system
 def deactivate_member(member_id):
-    member_id = int(member_id)
     query='''
-    UPDATE member SET is_active = 0
+    UPDATE member SET is_active = '0'
     WHERE id = %s
     '''
     g.db.execute(query, ( member_id))
-    g.db.commit()
-    return g.db.rowcount
+    g.connection.commit()
+    return g.db
 
 # this sets a member as active in the system
 def reactivate_member(member_id):
-    member_id = int(member_id)
     query='''
-    UPDATE member SET is_active = 1
+    UPDATE member SET is_active = '1'
     WHERE id = %s
     '''
     g.db.execute(query, member_id)
-    g.db.commit()
-    return g.db.rowcount
+    g.connection.commit()
+    return g.db
 
 # finds all members in a particular homegroup
 def get_homegroup_members(homegroup_id):
-    return g.db.execute('''SELECT * FROM member
-    JOIN homegroup_member ON member.id = homegroup_member.member_id
-    JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
-    WHERE homegroup_member.is_active = 1 and  homegroup.id = %s''', (homegroup_id,)).fetchall()
+    query = '''
+        SELECT * FROM member
+        JOIN homegroup_member ON member.id = homegroup_member.member_id
+        JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
+        WHERE homegroup_member.is_active = '1' and  homegroup.id = %s
+    '''
+    g.db.execute(query, (homegroup_id,))
+    return g.db.fetchall()
 
 def get_homegroup_emails(homegroup_id):
     return g.db.execute('''SELECT email FROM member
         JOIN homegroup_member ON member.id = homegroup_member.member_id
         JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
-        WHERE homegroup_member.is_active = 1 and  homegroup.id = %s''', (homegroup_id,)).fetchall()
+        WHERE homegroup_member.is_active = '1' and  homegroup.id = %s''', (homegroup_id,)).fetchall()
 
 # finds if a member has missed (number_of_misses) consecutive meetings
 def system_attendance_alert(homegroup_id, member_id, number_of_misses):
@@ -328,11 +329,13 @@ def find_member_homegroup(member_id):
 def get_attendance_dates(homegroup_id):
     homegroup_id = int(homegroup_id)
 
-    return g.db.execute('''
+    query = '''
         SELECT DISTINCT meeting.date, meeting.time, attendance.meeting_id
         from meeting JOIN attendance on meeting.id = attendance.meeting_id
         WHERE homegroup_id = %s
-        ''', (homegroup_id,)).fetchall()
+    '''
+    g.db.execute(query, (homegroup_id,))
+    return g.db.fetchall()
 
 
 # creates a new attendance report and initializes everyones attendance to false
@@ -343,8 +346,8 @@ def generate_attendance_report(homegroup_id, meeting_id):
         query = '''INSERT INTO attendance (homegroup_id, member_id, meeting_id, attendance)
         VALUES (%s, %s, %s, %s)
         '''
-        g.db.execute(query, ( homegroup_id,  member['id'],  meeting_id,'0'))
-    g.db.commit()
+        g.db.execute(query, ( homegroup_id, member['id'], meeting_id, '0'))
+    g.connection.commit()
     return g.db.rowcount
 
 # returns the attendance of a particular homegroup on a particular day/time
@@ -377,7 +380,7 @@ def add_date(date, time):
     INSERT INTO meeting (date, time) VALUES (%s, %s)
     '''
     g.db.execute(query, (date, time))
-    g.db.commit()
+    g.connection.commit()
     query = '''SELECT id from meeting order by id desc limit 1'''
     g.db.execute(query)
     return g.db.fetchone()
@@ -389,16 +392,17 @@ def recent_homegroup():
 
 # finds a homegroup based on homegroup_id
 def find_homegroup(homegroup_id):
-    return g.db.execute('SELECT * from homegroup WHERE id =%s', (homegroup_id,)).fetchone()
+    g.db.execute('SELECT * from homegroup WHERE id =%s', (homegroup_id,))
+    return g.db.fetchone()
 
 # creates a new homegroup
 def create_homegroup(name, location, description, latitude, longitude):
     query = '''
         INSERT INTO homegroup(name, location, description, latitude, longitude, is_active)
-        VALUES(%s, %s, %s, %s, %s, %s, '1')
+        VALUES(%s, %s, %s, %s, %s, '1')
         '''
     g.db.execute(query, ( name, location, description, latitude, longitude))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 # edits homegroup info
@@ -409,14 +413,14 @@ def edit_homegroup(homegroup_id, name, location, description, latitude, longitud
     '''
     g.db.execute(query,  (name,  location,
                                   description, latitude,  longitude, homegroup_id))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 # returns all homegroups
 def get_all_homegroups():
     query = '''
         SELECT * FROM homegroup
-        WHERE is_active=1
+        WHERE is_active='1'
         '''
     g.db.execute(query)
     return g.db.fetchall()
@@ -432,29 +436,27 @@ def get_all_homegroup_info():
 
 # deactivates a homegroup
 def deactivate_homegroup(homegroup_id):
-    homegroup_id = int(homegroup_id)
     query='''
-    UPDATE homegroup SET is_active = 0
+    UPDATE homegroup SET is_active = '0'
     WHERE id = %s
     '''
     g.db.execute(query, ( homegroup_id))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 def reactivate_homegroup(homegroup_id):
-    homegroup_id = int(homegroup_id)
     query='''
-    UPDATE homegroup SET is_active = 1
+    UPDATE homegroup SET is_active = '1'
     WHERE id = %s
     '''
     g.db.execute(query, ( homegroup_id))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 def get_all_inactive_homegroups():
     query = '''
     SELECT * FROM homegroup
-    WHERE is_active=0
+    WHERE is_active='0'
     '''
     g.db.execute(query)
     return g.db.fetchall()
@@ -499,10 +501,10 @@ def get_homegroup_attendance_counts(myhomegroup):
     SELECT date, time, meeting_id, COUNT(member.id) AS "countMembers" FROM attendance
     JOIN meeting ON attendance.meeting_id = meeting.id
     JOIN member ON attendance.member_id = member.id
-    WHERE attendance = '1' AND homegroup_id = '%s'
+    WHERE attendance = '1' AND homegroup_id = %s
     GROUP BY date, time
     '''
-    g.db.execute(query, ( myhomegroup))
+    g.db.execute(query, myhomegroup)
     return g.db.fetchall()
 
 def get_all_members_emails():
@@ -515,8 +517,9 @@ def get_all_members_emails():
 
 def get_homegroup_emails(homegroup_id):
     query = '''
-    SELECT email
-    FROM homegroup_member
+    SELECT email FROM member
+        JOIN homegroup_member ON member.id = homegroup_member.member_id
+        JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
     WHERE homegroup_id = %s'''
     g.db.execute(query, (homegroup_id))
     return g.db.fetchall()
