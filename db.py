@@ -3,11 +3,15 @@ import psycopg2.extensions
 import psycopg2.extras
 from datetime import date, datetime
 from flask import g
-
+import os
 
 # Connect to the database.
 def connect_db():
-    connection = psycopg2.connect("host=faraday.cse.taylor.edu port=5432 dbname=verbo user=verbo password=cuenca")
+    # To connect to an arbitrary database server, define PG_HOST to its host name.
+    # Otherwise, use default host.
+    pg_host = os.environ.get('PG_HOST', "faraday.cse.taylor.edu")
+    connection = psycopg2.connect(host=pg_host, dbname="verbo", user="verbo", password="cuenca")
+
     dict_cur = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     # cursor = connection.cursor()
     g.connection = connection
@@ -186,11 +190,10 @@ def add_age_to_member_rows(rows):
 
 # finds all members NOT in a particular homegroup
 def get_all_members_not_in_homegroup(homegroup_id):
-    homegroup_id = int (homegroup_id)
     query ='''
     select * from member where member.is_active = '1' and member.id not in (
     select member_id from homegroup_member
-    where homegroup_id = :%s and
+    where homegroup_id = %s and
     homegroup_member.is_active = '1'
     )
     '''
@@ -199,10 +202,11 @@ def get_all_members_not_in_homegroup(homegroup_id):
 
 # finds all the inactive homegroup members
 def get_homegroup_inactive_members(homegroup_id):
-    return g.db.execute('''SELECT * FROM member
-        JOIN homegroup_member ON member.id = homegroup_member.member_id
-        JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
-        WHERE homegroup_member.is_active != '1' and  homegroup.id = %s''', (homegroup_id,)).fetchall()
+    g.db.execute('''SELECT * FROM member
+            JOIN homegroup_member ON member.id = homegroup_member.member_id
+            JOIN homegroup ON homegroup_member.homegroup_id = homegroup.id
+            WHERE homegroup_member.is_active != '1' and  homegroup.id = %s''', (homegroup_id,))
+    return g.db.fetchall()
 
 
 # sets a homegroup member to be reactivated in the homegroup
@@ -291,13 +295,12 @@ def deactivate_hgleader(member_id, homegroup_id):
 
 # adds a member to a homegroup
 def add_member_to_homegroup(homegroup_id, member_id):
-    homegroup_id = int(homegroup_id)
-    member_id = int(member_id)
+
     query = '''
     INSERT INTO homegroup_member values(%s, %s, '1')
     '''
     g.db.execute(query, ( homegroup_id, member_id))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 # finds the most recent member entered into the db
@@ -307,14 +310,12 @@ def recent_member():
 
 # removes a member from a homegroup -- really just sets them inactive
 def remove_member(homegroup_id, member_id):
-    member_id = int(member_id)
-    homegroup_id = int(homegroup_id)
     query = '''
     UPDATE homegroup_member SET is_active = '0'
     WHERE homegroup_id = %s AND member_id = %s
     '''
     g.db.execute(query, (homegroup_id,  member_id))
-    g.db.commit()
+    g.connection.commit()
     return g.db.rowcount
 
 # this sets a member as inactive in the system
@@ -374,8 +375,9 @@ def system_attendance_alert(homegroup_id, member_id, number_of_misses):
 def find_homegroup_leader(homegroup_id):
     homegroup_id = int(homegroup_id)
     return g.db.execute('''
-    SELECT * from homegroup_leader join member on member.id = homegroup_leader.member_id
-    join homegroup_id = homegroup.id
+    SELECT * from homegroup_leader
+    join member on member.id = homegroup_leader.member_id
+    join homegroup on homegroup_leader.homegroup_id = homegroup.id
     where homegroup_id = %s
     ''', (homegroup_id,)).fetchone()
 
