@@ -1,10 +1,13 @@
 body, html{
      height: 100%;
- 	font-family: 'O', sans-serif;
+ 	font-family: 'Lato', sans-serif;
 	    background-size: cover;
+    margin-left:0px; !important
+    margin-right:0px; !important
 }
  div{
-            font-family: 'Questrial', sans-serif;
+     font-family: 'Lato', sans-serif;
+     font-weight:bold;
         }
 
 .main{
@@ -13,7 +16,6 @@ body, html{
 
 h1.title {
 	font-size: 50px;
-	font-family: 'Passion One', cursive;
 	font-weight: 400;
 }
 

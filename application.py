@@ -41,11 +41,11 @@ def init_test_user():
     if db.find_user('john@example.com') is None:
         password = 'password'
         pw_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-        db.create_user(1, pw_hash, 2)
+        db.create_user(1, pw_hash, 1)
     if db.find_user('admin@example.com') is None:
         password = 'password'
         pw_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-        db.create_user(7, pw_hash, 3)
+        db.create_user(7, pw_hash, 2)
 
 
 ########################## INDEX + MAP + Dashboard##############################################
@@ -123,7 +123,7 @@ def contact():
             recipients=recipient_list,
             html=email_html)
         mail.send(msg)
-        flash('Email Sent!')
+        flash('Email Sent!', category="success")
         return redirect(url_for('index'))
     return render_template('contact.html', form=contact_form)
 
@@ -135,10 +135,10 @@ def requires_roles(*roles):
         @wraps(f)
         def wrapped(*args, **kwargs):
             if not hasattr(current_user, 'role'):
-                flash('User does not have sufficient privileges ')
+                flash('User does not have sufficient privileges ', category="danger")
                 return redirect(url_for('index'))
             elif current_user.role not in roles:
-                flash('User does not have sufficient privileges ')
+                flash('User does not have sufficient privileges ', category="danger")
                 return redirect(url_for('index'))
             return f(*args, **kwargs)
 
@@ -154,6 +154,11 @@ class UserForm(FlaskForm):
     homegroups = SelectField('Choose Homegroup', choices=[], coerce=int)
     submit = SubmitField('Create User')
 
+class RoleForm(FlaskForm):
+    role = SelectField('Change Role', choices=[], coerce=int)
+    homegroups = SelectField('Choose Homegroup', choices=[], coerce=int)
+    submit = SubmitField('New Role')
+
 
 # Creates a new user and hashes their password in the database
 @app.route('/user/create/<member_id>', methods=['GET', 'POST'])
@@ -167,17 +172,18 @@ def create_user(member_id):
     email = member['email']
     user_form = UserForm()
     user_form.role.choices = roleList
-
     homegroups = db.get_all_homegroups()
     homegroup_list = []
     for homegroup in homegroups:
         homegroup_list.append((homegroup['id'], homegroup['name']))
     user_form.homegroups.choices = homegroup_list
-
-    if user_form.validate_on_submit():
+    if request.method == "POST":
         email_list.append(email)
         password = user_form.password.data
         pw_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+        if (db.has_active_role(member_id)):
+            flash("User already has account", category="danger")
+            return redirect(url_for('get_roles'))
         db.create_user(member_id, pw_hash, user_form.role.data)
         user = db.find_user(email)
         email_html = render_template('user_account_email.html', email=email, password=password, user_id=user['id'])
@@ -187,14 +193,89 @@ def create_user(member_id):
             recipients=email_list,
             html=email_html)
         mail.send(msg)
-        if user_form.homegroups.data is not None:
+        if user_form.role.data == 1:
             homegroupId = user_form.homegroups.data
-            user_id = db.find_user(email)['id']
-            db.add_leader_to_homegroup(user_id, homegroupId)
+            db.add_leader_to_homegroup(member_id, homegroupId)
 
-        flash('User Created')
-        return redirect(url_for('all_members'))
+        flash('User Created', category="success")
+        return redirect(url_for('get_roles'))
     return render_template('create_user.html', form=user_form, email = email)
+
+
+# shows role page
+@app.route('/roles')
+@login_required
+@requires_roles('admin')
+def get_roles():
+    member_roles = db.get_all_member_roles()
+    return render_template('roles.html', member_roles = member_roles)
+
+
+
+# Creates a new role for the user that already exists
+@app.route('/roles/new_role/<member_id>', methods=['GET', 'POST'])
+def assign_new_role(member_id):
+    current_user = db.find_user(session['username'])['member_id']
+    if (str(member_id) == str(current_user)):
+        flash("You cannot edit your own role - please contact a system administrator", category="warning")
+        return redirect(url_for('get_roles'))
+    allRoles = db.find_roles()
+    roleList = []
+    email_list = []
+    for role in allRoles:
+        roleList.append((role["id"], role["role"]))
+    member = db.find_member(member_id)
+    email = member['email']
+    user_form = RoleForm()
+    user_form.role.choices = roleList
+    homegroups = db.get_all_homegroups()
+    homegroup_list = []
+    for homegroup in homegroups:
+        homegroup_list.append((homegroup['id'], homegroup['name']))
+    user_form.homegroups.choices = homegroup_list
+
+    if request.method == "POST":
+
+        db.assign_new_role(member_id, user_form.role.data)
+        if user_form.role.data == 1:
+            homegroupId = user_form.homegroups.data
+            db.add_leader_to_homegroup(member_id, homegroupId)
+
+        flash('Role Created', category="success")
+        return redirect(url_for('get_roles'))
+    return render_template('assign_role.html', form=user_form, email = email)
+
+@app.route('/roles/edit/<member_id>/<role_id>')
+@login_required
+@requires_roles('admin')
+def edit_role(member_id, role_id):
+    current_user = db.find_user(session['username'])['member_id']
+    if (str(member_id) == str(current_user)):
+        flash("You cannot edit your own role - please contact a system administrator", category="warning")
+        return redirect(url_for('get_roles'))
+    is_active = db.role_is_active(member_id, role_id)
+    active = '1'
+    if is_active:
+        active = '0'
+    db.update_role(member_id, role_id, active)
+    return redirect(url_for('get_roles' ))
+
+
+@app.route('/hgleader/<member_id>/<homegroup_id>')
+@login_required
+@requires_roles('admin')
+def deactivate_hgleader(member_id, homegroup_id):
+    db.deactivate_hgleader(member_id, homegroup_id)
+    return redirect(url_for('get_roles'))
+
+
+# @app.route('/admin/create/<member_id>')
+# @login_required
+# @requires_roles('admin')
+# def create_admin(member_id):
+#     db.create_role(member_id)
+#     return redirect(url_for('get_roles' ))
+
 
 class UpdateUserForm(FlaskForm):
     old_password = PasswordField('Current Password', validators=[DataRequired()])
@@ -218,16 +299,15 @@ def update_user(user_id):
             if new_password == confirm_password:
                 password = new_password
                 pw_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-                print(member['role_id'])
                 db.update_user(user_id, pw_hash, member['role_id'])
-                flash('Password updated')
+                flash('Password updated', category="success")
                 return redirect(url_for('index'))
             else:
-                flash('New Password and Confirmation Password Do Not Match')
-                return redirect(url_for('update_user', user_id))
+                flash('New Password and Confirmation Password Do Not Match', category="danger")
+                return redirect(url_for('update_user', user_id = user_id))
         else:
-            flash('Entered in wrong current password')
-            return redirect(url_for('update_user', user_id))
+            flash('Entered in wrong current password', category="danger")
+            return redirect(url_for('update_user', user_id =  user_id))
     return render_template('update_user.html', form=user_form, email=email)
 
 
@@ -305,11 +385,11 @@ def login():
             current_user = User(login_form.email.data)
             login_user(current_user)
             session['username'] = current_user.email
-            flash('Logged in successfully as {}'.format(login_form.email.data))
+            #flash('Logged in successfully as {}'.format(login_form.email.data), category="success")
             return redirect(url_for('dashboard'))
         else:
             # Authentication failed.
-            flash('Invalid email address or password')
+            flash('Invalid email address or password', category="danger")
             return redirect(url_for('login'))
 
     return render_template('login.html', form=login_form)
@@ -320,7 +400,7 @@ def login():
 def logout():
     logout_user()
     user_name = session.pop('username', None)
-    flash('Logged out')
+    flash('Logged out', category="info")
     return redirect(url_for('index'))
 
 @app.route('/user/profile/<user_id>')
@@ -364,6 +444,7 @@ def attendance(homegroup_id):
         date = request.form['AttendanceDate']
         time = request.form['AttendanceTime']
         meeting_id = db.add_date(date, time)['id']
+
         db.generate_attendance_report(homegroup_id, meeting_id)
         return redirect(url_for('edit_attendance', homegroup_id=homegroup_id, meeting_id=meeting_id))
     return render_template('attendance.html', currentHomegroup=homegroup_id, form=attendance_form, members=members,
@@ -417,9 +498,9 @@ def edit_attendance(homegroup_id, meeting_id):
             input_name =  'member_' + str(member['member_id'] )
             if input_name in request.form:
                 print(member['first_name'] + " in attendance")
-                updateAttendance(homegroup_id, member['member_id'], meeting_id, 1)
+                updateAttendance(homegroup_id, member['member_id'], meeting_id, '1')
             else:
-                updateAttendance(homegroup_id, member['member_id'], meeting_id, 0)
+                updateAttendance(homegroup_id, member['member_id'], meeting_id, '0')
                 if(edit_or_new == 'new'):
                     print(member['first_name'] + " not in attendance")
                     attendancedates = db.system_attendance_alert(homegroup_id, member['id'], 3)
@@ -492,7 +573,7 @@ def edit_homegroup(homegroup_id):
         print(longitude)
         rowcount = db.edit_homegroup(homegroup_id, name, location, description, latitude, longitude)
         if (rowcount == 1):
-            flash("Home Group updated!")
+            flash("Home Group updated!", category="success")
             if (current_user.role == 'admin'):
                 return redirect(url_for('get_homegroups'))
             return redirect(url_for('homegroup', homegroup_id=homegroup_id))
@@ -568,7 +649,7 @@ def create_new_member_for_homegroup(homegroup_id):
             row = db.recent_member()
             member_id = row['id']
             db.add_member_to_homegroup(homegroup_id, member_id)
-            flash("Member {} Created!".format(member.first_name.data, member.last_name.data))
+            flash("Member {} Created!".format(member.first_name.data, member.last_name.data), category="success")
             return redirect(url_for('get_homegroup_members', homegroup_id=homegroup_id))
 
     return render_template('create_member.html', form=member, homegroup_id=homegroup_id)
@@ -627,7 +708,7 @@ def edit_member(member_id):
         rowcount = db.edit_member(member_id, first_name, last_name, email, phone_number, gender, birthday,
                                   baptism_status, marital_status, join_date)
         if (rowcount == 1):
-            flash("Member {} Updated!".format(member_form.first_name.data))
+            flash("Member {} Updated!".format(member_form.first_name.data), category="success")
             if (current_user.role == 'admin'):
                 return redirect(url_for('all_members'))
             else:
@@ -644,7 +725,7 @@ def edit_member(member_id):
 def remove_member(homegroup_id, member_id):
     rowcount = db.remove_member(homegroup_id, member_id)
     if rowcount == 1:
-        flash("Member Removed!")
+        flash("Member Removed!", category="success")
     return redirect(url_for('get_homegroup_members', homegroup_id=homegroup_id))
 
 
@@ -684,7 +765,7 @@ def create_homegroup():
         rowcount = db.create_homegroup(name, location, description, latitude, longitude)
 
         if rowcount == 1:
-            flash("Homegroup {} Created!".format(new_homegroup.name.data))
+            flash("Homegroup {} Created!".format(new_homegroup.name.data), category="success")
             return redirect(url_for('get_homegroups'))
 
     return render_template('create_homegroup.html', form=new_homegroup)
@@ -708,7 +789,7 @@ def deactivate_homegroup(homegroup_id):
 
     # if the member is not active
     if not db.find_homegroup(homegroup_id)['is_active']:
-        flash("Homegroup Deactivated!")
+        flash("Homegroup Deactivated!", category="success")
     return redirect(url_for('get_homegroups'))
 
 
@@ -720,7 +801,7 @@ def reactivate_homegroup(homegroup_id):
     rowcount = db.reactivate_homegroup(homegroup_id)
     # if the member is not active
     if db.find_homegroup(homegroup_id)['is_active']:
-        flash("Homegroup Reactivated!")
+        flash("Homegroup Reactivated!", category="success")
     return redirect(url_for('get_homegroups'))
 
 
@@ -764,7 +845,7 @@ def create_member():
                                     marital_status, join_date)
         print(rowcount)
         if rowcount == 1:
-            flash("Member {} Created!".format(member.first_name.data))
+            flash("Member {} Created!".format(member.first_name.data), category="success")
             return redirect(url_for('all_members'))
 
     return render_template('create_member.html', form=member)
@@ -779,7 +860,7 @@ def deactivate_member(member_id):
     print(db.find_member(member_id)['is_active'])
     # if the member is not active
     if db.find_member(member_id)['is_active'] == '0':
-        flash("Member Deactivated!")
+        flash("Member Deactivated!", category="success")
     return redirect(url_for('all_members'))
 
 
@@ -790,7 +871,7 @@ def deactivate_member(member_id):
 def reactivate_member(member_id):
     rowcount = db.reactivate_member(member_id)
     if db.find_member(member_id)['is_active'] == '1':
-        flash("Member Reactivated!")
+        flash("Member Reactivated!", category="success")
     return redirect(url_for('all_members'))
 
 
@@ -811,6 +892,7 @@ def advanced_search():
 def all_admin():
     return render_template('admin_profiles.html', admin=db.get_all_admin(),
                            inactiveAdmin=db.get_all_inactive_admin(), showInactive=False)
+
 
 
 # Make this the last line in the file!
